@@ -25,6 +25,7 @@
 
 %% API
 -export([start_link/1]).
+
 %% gen_alog callbacks
 -export([start/1,
          stop/1,
@@ -42,8 +43,7 @@
 
 -define(DEF_SUP_REF, alog_sup).
 
--define(DEF_ADDR, "localhost").
--define(DEF_PORT, 2121).
+-define(DEF_ADDR, ["tcp://localhost:2121"]).
 
 %%% API
 %% @doc Starts logger
@@ -86,11 +86,9 @@ format(FormatString, Args, Level, Tag, Module, Line, Pid, TimeStamp) ->
 %% @private
 init([Opts]) ->
     Addr = gen_alog:get_opt(addr, Opts, ?DEF_ADDR),
-    Port = gen_alog:get_opt(port, Opts, ?DEF_PORT),
 	{ok, Context} = erlzmq:context(),
     {ok, Socket} = erlzmq:socket(Context, push),
-    Url = lists:concat(["tcp://", ?DEF_ADDR, ":", ?DEF_PORT]),
-    ok = erlzmq:connect(Socket, Url),
+    zerolog_connect(Socket, Addr),
 	process_flag(trap_exit, true),
 	{ok, #state{context=Context, socket=Socket}}.
 
@@ -122,6 +120,14 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%% Internal functions
+%% @private
+zerolog_connect(_Socket, []) ->
+	ok;
+	
+zerolog_connect(Socket, [H|T]) ->
+	erlzmq:connect(Socket, H),
+	zerolog_connect(Socket, T).
+
 %% @private
 %% @doc Maps alogger priorities to scribe priorities
 -spec map_prio(integer()) -> string().
