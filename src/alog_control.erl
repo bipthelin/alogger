@@ -462,7 +462,7 @@ apply_config(#config{flows = Flows}) ->
 %% @private
 configs_to_internal_form(Flows) ->
     ToInternaFlow =
-        fun(#flow{enabled = true, filter = Filter, loggers = Loggers,
+        fun(#flow{enabled = true, filter = Filter, loggers = _Loggers,
                   priority = PriorityPattern} = Flow, Acc) ->
                 NewFlow =
                     Flow#flow{

@@ -106,9 +106,9 @@ make_clause_low(Flow, {What, [ModTag|ModTags]}, Prio, Loggers, Formatter, Acc)  
     AbsLogs = [abstract({Formatter,Loggers})],
     NewClause = {clause, 0, get_arity(Flow,What,ModTag),
                  get_guard(Prio, ModTag), AbsLogs},
-    make_clause(Flow, What, ModTags, Prio, Loggers,
-                [NewClause | Acc]);
-make_clause(_,_,[], _, _, Acc) ->
+    make_clause_low(Flow, {What, ModTags}, Prio, Loggers, Formatter,
+        [NewClause | Acc]);
+make_clause_low(_,{_,[]}, _, _,_, Acc) ->
     Acc.
 
 %% @private
