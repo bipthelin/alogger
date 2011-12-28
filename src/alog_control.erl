@@ -22,7 +22,6 @@
 
 -module(alog_control).
 -behaviour(gen_server).
--include_lib("alog.hrl").
 
 %% API
 -export([start_link/0,
@@ -40,6 +39,7 @@
          delete_flow/1,
          delete_all_flows/0,
          add_new_flow/3,
+         add_new_flow/1,
          replace_flows/1,
          dump_to_config/1,
          add_logger/1,
@@ -55,6 +55,9 @@
          terminate/2,
          code_change/3]).
 
+-include("alog.hrl").
+-include("alog_flow.hrl").
+
 -define(SERVER, ?MODULE).
 
 %% Default enabled loggers
@@ -63,26 +66,6 @@
 %% Default enabled flows
 %% will be used in case if alog.config doesn't exist
 -define(DEF_FLOWS_ENABLED, [{{mod, ['_']}, {'=<', debug}, [alog_tty]}]).
-
--type filter() :: {mod, atom()} | {mod, [atom()]} |
-                  {tag, atom()} | {tag, [atom()]} |
-                  {app, atom()}.
-
--type logger() :: atom().
-
--type priority() :: debug | info | notice | warning | error 
-                    | critical | alert | emergency | integer().
-
--type priority_expr() :: '<' | '>' | '=<' | '>=' | '==' | '/='.
-
--type priority_pattern() :: list({priority_expr(), priority()}) |
-                            {priority_expr(), priority()} | priority().
-
--record(flow, {id              :: non_neg_integer(),
-               filter          :: filter(),
-               priority        :: priority_pattern(),
-               loggers  = []   :: list(logger()),
-               enabled  = true :: true | {false, user} | {false, loggersOff}}).
 
 -record(config, {flows           = [] :: list(#flow{}),
                  enabled_loggers = [] :: list(logger()),
@@ -149,7 +132,14 @@ delete_all_flows() ->
 -spec  add_new_flow(filter(), priority_pattern(), [logger()])
                    -> ok | {error, term()}.
 add_new_flow(Filter, Priority, Loggers) ->
-    gen_server:call(?SERVER, {add_new_flow, Filter, Priority, Loggers}).
+    ProplistConfig =
+        [{filter, Filter}, {priority, Priority}, {loggers, Loggers}],
+    add_new_flow(ProplistConfig).
+
+%% @doc Create new flow from proplist params
+-spec  add_new_flow(list()) -> ok | {error, term()}.
+add_new_flow(ProplistConfig) ->
+    gen_server:call(?SERVER, {add_new_flow, ProplistConfig}).
 
 %% @doc Replace all flows on new.
 -spec  replace_flows([#flow{}]) -> ok | {error, term()}.
@@ -263,14 +253,10 @@ do_request(print_flows, #config{flows = Flows, power = Power} = Config) ->
     format_lib_supp:print_info(group_leader(), [Header, Table]),
     {ok, Config};
 
-do_request({add_new_flow, Filter, Priority, Loggers},
+do_request({add_new_flow, ProplistConfig},
            #config{flows = Flows, enabled_loggers = EnabledLoggers} = Config) ->
-    
-    NewFlow = #flow{filter = Filter, priority = Priority,
-                    loggers = Loggers},
-
-    NewFlows = add_flow(NewFlow, Flows, EnabledLoggers),
-
+    NewFlow   = proplist_config_to_flow(ProplistConfig, #flow{}),
+    NewFlows  = add_flow(NewFlow, Flows, EnabledLoggers),
     NewConfig = Config#config{flows = NewFlows},
     new_config_if_successfully_applied(NewConfig, Config);
 
@@ -477,11 +463,11 @@ apply_config(#config{flows = Flows}) ->
 configs_to_internal_form(Flows) ->
     ToInternaFlow =
         fun(#flow{enabled = true, filter = Filter, loggers = Loggers,
-                  priority = PriorityPattern}, Acc) ->
+                  priority = PriorityPattern} = Flow, Acc) ->
                 NewFlow =
-                    {filter_to_internal(Filter),
-                     priority_pattern_to_internal(PriorityPattern),
-                     Loggers},
+                    Flow#flow{
+                      filter   = filter_to_internal(Filter),
+                      priority = priority_pattern_to_internal(PriorityPattern)},
                 [NewFlow | Acc];
            (_DisabledFlow, Acc) -> Acc
         end,
@@ -525,10 +511,32 @@ parse_flows_config(FlowsConfig) ->
                              filter   = Filter,
                              priority = Priority,
                              loggers  = Loggers},
-                {CurId + 1, [Flow | Flows]}
+                {CurId + 1, [Flow | Flows]};
+           ({Filter, Priority, Formatter, Loggers}, {CurId, Flows}) ->
+                Flow = #flow{id        = CurId,
+                             filter    = Filter,
+                             priority  = Priority,
+                             formatter = Formatter,
+                             loggers   = Loggers},
+                {CurId + 1, [Flow | Flows]};
+           (ProplistConfig, {CurId, Flows}) when is_list(ProplistConfig) ->
+                   Flow =
+                    proplist_config_to_flow(ProplistConfig, #flow{id = CurId}),
+                   {CurId + 1, [Flow | Flows]}
         end,
     {_Id, ParsedFlows} = lists:foldl(ParseFun, {1, []}, FlowsConfig),
     ParsedFlows.
+
+%% @private
+proplist_config_to_flow(ProplistConfig, OldFlow) ->
+    ParseFun =
+        fun({filter, Val},    Flow) -> Flow#flow{filter = Val};
+           ({priority, Val},  Flow) -> Flow#flow{priority = Val};
+           ({formatter, Val}, Flow) -> Flow#flow{formatter = Val};
+           ({loggers, Val},   Flow) -> Flow#flow{loggers = Val};
+           ({enabled, Val},   Flow) -> Flow#flow{enabled = Val}
+        end,
+    lists:foldl(ParseFun, OldFlow, ProplistConfig).
 
 %% @private
 dump_to_config_low(File, Flow) ->

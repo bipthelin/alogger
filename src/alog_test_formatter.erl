@@ -1,7 +1,5 @@
 %% @doc
-%% Easy logger that logs messages to console (maiking io:format).
-%% All functions in this logger are just gen_alog callbacks, so they
-%% are private.
+%% Foramatter for unit tests, must by used with alog_test_logger_iface
 %% @end
 %% ----------------------------------------------------------------------
 %% Copyright (c) 2011 Siberian Fast Food
@@ -22,30 +20,13 @@
 %% under the License.
 %% ----------------------------------------------------------------------
 
--module(alog_tty).
--behaviour(gen_alog).
+-module(alog_test_formatter).
+-behaviour(gen_formatter).
 
-%% gen_alog callbacks
--export([start/1,
-         stop/1,
-         log/2]).
+%% gen_formatter callbacks
+-export([format/8]).
 
 %% @private
--spec start(list()) -> ok.
-start(_) ->
-    ok.
-
-%% @private
--spec stop(list()) -> ok.
-stop(_) ->
-    ok.
-
-%% @private
--spec log(integer(), string()) -> ok.
-log(_ALoggerPrio, Msg) ->
-    case node(group_leader()) =:= node() of
-        true ->
-            io:format("~s", [Msg]);
-        _ ->
-            ok
-    end.
+format(_FormatString, [RequestRef], Level, Tag, Module, Line, Pid, _Timestamp) ->
+    Pid ! {format, RequestRef, Level, Tag, Module, Line, Pid},
+    {RequestRef, Level, Tag, Module, Line, Pid}.

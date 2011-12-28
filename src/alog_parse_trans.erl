@@ -26,6 +26,7 @@
 -export([parse_transform/2, load_config/1]).
 
 -include("alog.hrl").
+-include("alog_flow.hrl").
 -define(IFACE_MODE, alog_if).
 -define(IFACE_SOURCE, "alog_if.erl").
 -define(FILTER_BOOLEAN, ['>','<','=<','>=','==','/=']).
@@ -69,11 +70,10 @@ make_ast(Config) ->
 
 %% @private
 make_proceed_ast(Config) ->
-    FlowSeq     = lists:seq(1, length(Config)),
-    FlowsConfig = lists:zip(FlowSeq, Config),
-    Clauses     = multiply_clauses(FlowsConfig),
+    Clauses     = multiply_clauses(Config),
     DefAst      = alog_if_default:default_mod_ast(),
     NewAst      = insert_clauses(DefAst, Clauses),
+    FlowSeq     = [X || #flow{id = X} <- Config],
     FlowNewAst  = insert_flowlist(NewAst, [abstract(FlowSeq)]), 
     {ok, FlowNewAst}.
 
@@ -81,15 +81,29 @@ make_proceed_ast(Config) ->
 %% @doc makes many many clauses
 multiply_clauses(Config) ->
     multiply_clauses(Config, def_clause()).
-multiply_clauses([{Flow,{{What,ModTags},Prio, Loggers}}|Configs], Acc) ->
-    NewAcc = make_clause(Flow, What,ModTags, Prio, Loggers, Acc),
+multiply_clauses([FlowRec|Configs], Acc) ->
+    NewAcc = make_clause(FlowRec#flow.id,
+			 FlowRec#flow.filter,
+			 FlowRec#flow.priority,
+			 FlowRec#flow.loggers,
+			 FlowRec#flow.formatter,
+			 Acc),
     multiply_clauses(Configs, NewAcc);
 multiply_clauses([], Acc) ->
     Acc.
 
 %% @private
-make_clause(Flow, What, [ModTag|ModTags], Prio, Loggers, Acc)  ->
-    AbsLogs = [abstract(Loggers)],
+make_clause(Flow, Filter, Prio, Loggers, Formatter, Acc) when is_tuple(Filter) ->
+    make_clause(Flow, [Filter], Prio, Loggers, Formatter, Acc);    
+make_clause(Flow, [F|Filters], Prio, Loggers, Formatter, Acc) ->
+    Acc1 = make_clause_low(Flow, F, Prio, Loggers, Formatter, Acc),
+    make_clause(Flow, Filters, Prio, Loggers, Formatter, Acc1);
+make_clause(_,[], _, _,_, Acc) ->
+    Acc.
+
+%% @private
+make_clause_low(Flow, {What, [ModTag|ModTags]}, Prio, Loggers, Formatter, Acc)  ->
+    AbsLogs = [abstract({Formatter,Loggers})],
     NewClause = {clause, 0, get_arity(Flow,What,ModTag),
                  get_guard(Prio, ModTag), AbsLogs},
     make_clause(Flow, What, ModTags, Prio, Loggers,
@@ -134,15 +148,8 @@ insert_flowlist_every(Any, _FlowList) ->
 
 %% @private
 %% @doc checks config.
-check_config([{{mod, _},Prio, Loggers}|Configs]) ->
-    case is_loaded(Prio, Loggers) of
-	ok ->
-	    check_config(Configs);
-	Other ->
-	    Other
-    end;
-check_config([{{tag,_},Prio, Loggers}|Configs]) ->
-    case is_loaded(Prio, Loggers) of
+check_config([Rec|Configs]) ->
+    case is_loaded(Rec#flow.priority, Rec#flow.loggers) of
 	ok ->
 	    check_config(Configs);
 	Other ->
