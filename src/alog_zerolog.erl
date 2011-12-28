@@ -97,9 +97,11 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 %% @private
-handle_cast({log, ZerologPrio, Msg},
+handle_cast({log, _ZerologPrio, Msg},
             #state{context = _Context, socket = Socket} = State) ->
-	Message = term_to_binary({ZerologPrio, Msg}),
+	Message = erlang:iolist_to_binary([
+				    protobuffs:encode(1, list_to_binary(Msg), string)
+				]),
 	erlzmq:send(Socket, Message),
     {noreply, State};
 
